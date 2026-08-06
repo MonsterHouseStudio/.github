@@ -137,7 +137,7 @@
 
 ```
 monsterhouse/
-├── BE/   Java 17 · Spring Boot 3 · JPA + QueryDSL · MySQL 8
+├── BE/   Java 21 · Spring Boot 3 · JPA + QueryDSL · MySQL 8
 └── FE/   React 18 · TypeScript · Vite · Tailwind · TanStack Query
 ```
 
