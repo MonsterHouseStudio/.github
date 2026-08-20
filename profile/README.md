@@ -15,6 +15,7 @@
 ![React](https://img.shields.io/badge/React-18-61DAFB?style=flat-square&logo=react&logoColor=black)
 ![TypeScript](https://img.shields.io/badge/TypeScript-5.6-3178C6?style=flat-square&logo=typescript&logoColor=white)
 ![MySQL](https://img.shields.io/badge/MySQL-8.0-4479A1?style=flat-square&logo=mysql&logoColor=white)
+![Dropwizard](https://img.shields.io/badge/Dropwizard-5.0-4C7A9E?style=flat-square)
 ![i18n](https://img.shields.io/badge/i18n-한국어_·_日本語-8B0A0A?style=flat-square)
 
 </div>
@@ -35,6 +36,8 @@
 
 > 실제 동작 화면입니다. 목 데이터가 아니라 **DB에 연결된 상태**에서 캡처했습니다.
 > 갤러리 사진은 데모용 플레이스홀더입니다.
+> <br /><sub>캡처 시점 2026-08. 이후 메인 히어로가 전체 화면 배너(이미지·MP4 슬라이드)로 바뀌어
+> 실제 화면과 차이가 있습니다.</sub>
 
 <div align="center">
   <img src="./assets/home.png" alt="메인" width="800" />
@@ -98,6 +101,27 @@
 
 > 둘 다 테스트가 없었으면 운영에서 중복 예약으로 발견됐을 문제입니다.
 
+**고친 뒤 부하 실험으로 확인했습니다.** 실제 MySQL 8(Testcontainers)에서
+`CountDownLatch`로 동시 출발시켜 **18회차** 돌렸습니다.
+
+| 시나리오 | 결과 |
+|---|---|
+| 동일 슬롯 경쟁 N=5 · 20 · 50 (각 3회) | 성공 **정확히 1건** |
+| 겹치지 않는 슬롯 | 전원 성공 |
+| 취소 후 재예약 10건 동시 | 정확히 1건 |
+| 데드락 | **총 0회** |
+
+흥미로운 건 N=50 구간이었습니다. 정합성은 그대로였지만 **실패의 성격이 바뀌었습니다.**
+총 실패 147건 중 **127건(86%)이 예약 로직에 도달조차 못 한** 커넥션 풀 고갈이었고,
+소요 시간 약 10,200ms는 HikariCP의 `connection-timeout` 10,000ms와 일치했습니다.
+
+이 예외가 전역 예외 처리 목록에 없어 catch-all로 떨어지면서 고객에게 **500**이 나가고
+있었습니다. 실제로는 "지금 붐빔"이므로 **429**가 맞습니다 — 매핑을 고치고 테스트를 붙였습니다.
+
+> 한계는 락 설계가 아니라 **커넥션 풀**이었습니다.
+> 풀 크기를 올리는 건 직렬화 구조가 그대로면 한계를 뒤로 미룰 뿐이라 완화책으로 분류했고,
+> 락 점유 시간 단축을 다음 과제로 남겨뒀습니다.
+
 <br />
 
 ### 2. 진짜 다국어 — UI 번역을 넘어서
@@ -136,17 +160,67 @@
 ## 구성
 
 ```
-monsterhouse/
-├── BE/   Java 21 · Spring Boot 3 · JPA + QueryDSL · MySQL 8
-└── FE/   React 18 · TypeScript · Vite · Tailwind · TanStack Query
+MonsterHouseStudio/
+├── BE     Java 21 · Spring Boot 3.3 · JPA + QueryDSL · MySQL 8 · Flyway · ShedLock
+├── FE     React 18 · TypeScript · Vite · Tailwind · TanStack Query · react-i18next
+└── wiz    같은 예약 겹침 판정을 Dropwizard 5 + Guice + JDBI3 로 이식 (아래 참고)
 ```
 
 | | |
 |---|---|
-| 백엔드 | 162개 파일 · **57개 API 엔드포인트** |
-| 프론트엔드 | 43개 파일 · 한/일 이중언어 라우팅 |
-| 테스트 | **29개 통과** (예약 동시성 4 · 관리자 인증 8 · JWT 5 · 문의 5 · 업로드 7) |
-| 인프라 | Docker Compose · S3/CloudFront (로컬은 파일시스템으로 대체) |
+| 백엔드 | 188개 파일 · **73개 API 엔드포인트** · Flyway `V1`~`V4` |
+| 프론트엔드 | 51개 파일 · 한/일 이중언어 라우팅 |
+| 테스트 | **53개 통과** (10개 클래스) |
+| 인프라 | Docker Compose · GitHub Actions CI · k8s 매니페스트 + cert-manager · S3/CloudFront |
+
+**테스트 내역** — 관리자 인증 8 · 이미지 업로드 7 · 영상 업로드 6 · 알림 아웃박스 6 ·
+전역 예외 처리 6 · JWT 5 · 문의 5 · 마이그레이션 정합성 5 · 예약 동시성 4 · 부하 실험 1
+
+<br />
+
+## 운영을 염두에 둔 것들
+
+첫 배포 이후 **"장애가 나면 무엇이 남는가"**를 기준으로 채운 것들입니다.
+
+- **알림 재시도(아웃박스)** — 메일·LINE 발송을 보내기 **전에** 먼저 기록하고,
+  실패하면 1 → 2 → 4 → 8분 간격으로 5회까지 재시도합니다.
+  발송이 터져도 "보내려 했다"는 사실이 남아야 유실을 찾을 수 있습니다.
+  알림은 예약 처리의 **결과이지 조건이 아니므로** 실패해도 예약은 성립시킵니다
+- **ShedLock** — 인스턴스를 여러 개 띄우면 `@Scheduled`가 서버 수만큼 중복 실행됩니다.
+  개인정보 파기 배치가 그렇게 돌면 곤란해서 DB 락으로 한 번만 돌게 묶었습니다
+- **마이그레이션 정합성 테스트** — 엔티티만 추가하고 마이그레이션을 빠뜨리는 실수를 잡습니다.
+  실제로 배너 테이블을 추가한 다음 날 이 테스트가 `missing table [banner]`로 잡아냈습니다
+
+<br />
+
+## 곁가지 — 같은 문제를 Dropwizard로 다시 풀어본 저장소
+
+`wiz`는 새 서비스가 아닙니다. 위 **예약 겹침 판정을 Spring 없이 다시 구현**해,
+그 설계가 프레임워크에 딸린 것인지 확인한 저장소입니다.
+
+Java 21 · Dropwizard 5 (Jetty 12) · Guice · JDBI3 · MySQL 8 · Testcontainers.
+본문 373줄 · 테스트 13건.
+
+결과는 세 줄로 요약됩니다.
+
+- **설계는 그대로 옮겨졌습니다** — 3층 방어도, 등호 없는 겹침 조건도 바뀐 줄이 없습니다
+- **배선은 전부 다시 썼습니다** — Spring이 자동으로 해주던 것을 손으로 적어야 했습니다
+- **같은 데드락이 다시 났습니다** — 그리고 **같은 해법으로 풀렸습니다**
+
+마지막 항목이 핵심입니다. Spring을 걷어냈는데도 났다는 건 그 데드락이 프레임워크가 아니라
+**InnoDB의 잠금 동작**에서 온다는 뜻입니다.
+
+저장소 인터페이스에는 메서드를 하나만 뒀습니다.
+
+```java
+Optional<Booking> insertIfNoOverlap(LocalDate date, LocalTime start, LocalTime end);
+```
+
+`검사()` + `저장()`으로 쪼개면 그 사이가 다시 경합 구간이 되고, 막으려면 **부르는 쪽이**
+락을 알아야 합니다. 하나로 묶어 원자성 경계를 인터페이스에 박아두니,
+인메모리 구현체(날짜별 락)와 MySQL 구현체(`FOR UPDATE` + UNIQUE)가
+**같은 테스트 파일**로 검증됩니다 — 동시 20건 중 정확히 1건만 성공하는 테스트를 포함해서요.
+구현체를 바꿀 때 실제로 수정한 코드는 **DI 바인딩 한 줄**이었습니다.
 
 **주요 도메인**
 
