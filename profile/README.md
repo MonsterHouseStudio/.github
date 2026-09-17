@@ -18,6 +18,10 @@
 ![Dropwizard](https://img.shields.io/badge/Dropwizard-5.0-4C7A9E?style=flat-square)
 ![i18n](https://img.shields.io/badge/i18n-한국어_·_日本語-8B0A0A?style=flat-square)
 
+<br />
+
+[![LIVE](https://img.shields.io/badge/LIVE-monsterhouse.co.kr-1a7a3a?style=for-the-badge&logo=caddy&logoColor=white)](https://monsterhouse.co.kr)
+
 </div>
 
 <br />
@@ -28,7 +32,7 @@
 촬영 예약을 온라인으로 받고, 시합 일정과 크루의 성장기를 발신하며,
 일본 고객을 위한 통역 신청 창구를 운영합니다.
 
-포트폴리오용 습작이 아니라 **실제로 운영할 목적으로** 만들고 있습니다.
+포트폴리오용 습작이 아니라 **실제로 운영할 목적으로** 만들었고, 지금은 **실제로 운영 중**입니다 — [monsterhouse.co.kr](https://monsterhouse.co.kr) (HTTPS 자동발급).
 
 <br />
 
@@ -168,10 +172,10 @@ MonsterHouseStudio/
 
 | | |
 |---|---|
-| 백엔드 | 188개 파일 · **73개 API 엔드포인트** · Flyway `V1`~`V4` |
+| 백엔드 | 188개 파일 · **73개 API 엔드포인트** · Flyway `V1`~`V5` |
 | 프론트엔드 | 51개 파일 · 한/일 이중언어 라우팅 |
 | 테스트 | **53개 통과** (10개 클래스) |
-| 인프라 | Docker Compose · GitHub Actions CI · k8s 매니페스트 + cert-manager · S3/CloudFront |
+| 인프라 | **AWS Lightsail 운영 배포** · Docker Compose(MySQL·Backend·Frontend·Caddy) · Caddy 자동 HTTPS · GitHub Actions → SSH 자동배포 · k8s 매니페스트 |
 
 **테스트 내역** — 관리자 인증 8 · 이미지 업로드 7 · 영상 업로드 6 · 알림 아웃박스 6 ·
 전역 예외 처리 6 · JWT 5 · 문의 5 · 마이그레이션 정합성 5 · 예약 동시성 4 · 부하 실험 1
